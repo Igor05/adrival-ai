@@ -6,6 +6,9 @@ export type AdPlatform =
   | "YouTube"
   | "LinkedIn";
 
+// The platform(s) the creator/competitor being analyzed is actually active on.
+export type CreatorPlatform = "Instagram" | "TikTok";
+
 export interface CompetitorAd {
   id: string;
   platform: AdPlatform;
@@ -16,6 +19,15 @@ export interface CompetitorAd {
   cta: string;
 }
 
+export interface Source {
+  label: string;
+  url: string;
+}
+
+// "grounded": backed by real sources the research step actually found.
+// "limited": public data was too sparse to confirm — copy should say so plainly.
+export type DataConfidence = "grounded" | "limited";
+
 export interface CompetitorAnalysis {
   summary: string;
   toneOfVoice: string;
@@ -24,6 +36,15 @@ export interface CompetitorAnalysis {
   strengths: string[];
   weaknesses: string[];
   adsAnalyzed: CompetitorAd[];
+  adsAnalyzedNote: string;
+  sources: Source[];
+  confidence: DataConfidence;
+}
+
+export interface CoursePromo {
+  headline: string;
+  body: string;
+  cta: string;
 }
 
 export interface CounterStrategy {
@@ -37,20 +58,36 @@ export interface CounterStrategy {
   body: string;
   cta: string;
   imagePrompt: string;
+  coursePromo: CoursePromo;
+}
+
+// Real, fetched-at-request-time evidence for a specific post/profile the user
+// linked to — never AI-generated, so it can carry an actual thumbnail/caption.
+export interface ProfileEvidence {
+  platform: CreatorPlatform | "Unknown";
+  url: string;
+  authorName?: string;
+  title?: string;
+  thumbnailUrl?: string;
+  error?: string;
 }
 
 export type AnalysisSource = "ai" | "mock";
 
 export interface AnalyzeResult {
   competitor: string;
+  platforms: CreatorPlatform[];
   analysis: CompetitorAnalysis;
   counterStrategies: CounterStrategy[];
+  profileEvidence: ProfileEvidence[];
   generatedAt: string;
   source: AnalysisSource;
 }
 
 export interface AnalyzeRequestBody {
   competitorName: string;
+  platforms: CreatorPlatform[];
+  postUrls?: string[];
 }
 
 export interface AnalyzeErrorResponse {
