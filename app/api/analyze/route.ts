@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 import type {
   AdPlatform,
   AnalyzeErrorResponse,
@@ -11,7 +11,9 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
+// "gemini-1.5-flash" has been retired by Google; "gemini-flash-latest" is the
+// current free-tier-eligible alias that always points at the newest Flash model.
+const MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
 /**
  * Stand-in for a real ad-scraping pipeline (e.g. Meta Ad Library / TikTok
@@ -48,102 +50,95 @@ const MOCK_COMPETITOR_ADS: CompetitorAd[] = [
   },
 ];
 
-const ANALYSIS_TOOL_NAME = "submit_competitor_analysis";
-
-const ANALYSIS_TOOL: Anthropic.Tool = {
-  name: ANALYSIS_TOOL_NAME,
-  description:
-    "Submit the structured competitive ad analysis and exactly three counter-strategies.",
-  input_schema: {
-    type: "object",
-    properties: {
-      analysis: {
+const ANALYSIS_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    analysis: {
+      type: "object",
+      properties: {
+        summary: {
+          type: "string",
+          description: "2-3 sentence summary of the competitor's ad approach.",
+        },
+        toneOfVoice: { type: "string" },
+        targetAudience: { type: "string" },
+        primaryAngle: {
+          type: "string",
+          description: "The dominant persuasion angle used across their ads.",
+        },
+        strengths: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 2,
+          maxItems: 4,
+        },
+        weaknesses: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 2,
+          maxItems: 4,
+        },
+      },
+      required: [
+        "summary",
+        "toneOfVoice",
+        "targetAudience",
+        "primaryAngle",
+        "strengths",
+        "weaknesses",
+      ],
+    },
+    counterStrategies: {
+      type: "array",
+      minItems: 3,
+      maxItems: 3,
+      items: {
         type: "object",
         properties: {
-          summary: {
+          title: { type: "string" },
+          angle: {
             type: "string",
-            description: "2-3 sentence summary of the competitor's ad approach.",
+            description: "The counter-positioning angle, distinct from the competitor's primary angle.",
           },
-          toneOfVoice: { type: "string" },
+          rationale: {
+            type: "string",
+            description: "Why this angle exploits a specific weakness in the competitor's approach.",
+          },
           targetAudience: { type: "string" },
-          primaryAngle: {
+          channels: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["Instagram", "Facebook", "TikTok", "Google Display", "YouTube", "LinkedIn"],
+            },
+            minItems: 1,
+            maxItems: 3,
+          },
+          headline: { type: "string" },
+          body: { type: "string" },
+          cta: { type: "string" },
+          imagePrompt: {
             type: "string",
-            description: "The dominant persuasion angle used across their ads.",
-          },
-          strengths: {
-            type: "array",
-            items: { type: "string" },
-            minItems: 2,
-            maxItems: 4,
-          },
-          weaknesses: {
-            type: "array",
-            items: { type: "string" },
-            minItems: 2,
-            maxItems: 4,
+            description:
+              "A ready-to-use, richly descriptive prompt (subject, composition, lighting, style, aspect ratio) for an AI image generator to create the ad's visual.",
           },
         },
         required: [
-          "summary",
-          "toneOfVoice",
+          "title",
+          "angle",
+          "rationale",
           "targetAudience",
-          "primaryAngle",
-          "strengths",
-          "weaknesses",
+          "channels",
+          "headline",
+          "body",
+          "cta",
+          "imagePrompt",
         ],
       },
-      counterStrategies: {
-        type: "array",
-        minItems: 3,
-        maxItems: 3,
-        items: {
-          type: "object",
-          properties: {
-            title: { type: "string" },
-            angle: {
-              type: "string",
-              description: "The counter-positioning angle, distinct from the competitor's primary angle.",
-            },
-            rationale: {
-              type: "string",
-              description: "Why this angle exploits a specific weakness in the competitor's approach.",
-            },
-            targetAudience: { type: "string" },
-            channels: {
-              type: "array",
-              items: {
-                type: "string",
-                enum: ["Instagram", "Facebook", "TikTok", "Google Display", "YouTube", "LinkedIn"],
-              },
-              minItems: 1,
-              maxItems: 3,
-            },
-            headline: { type: "string" },
-            body: { type: "string" },
-            cta: { type: "string" },
-            imagePrompt: {
-              type: "string",
-              description:
-                "A ready-to-use, richly descriptive prompt (subject, composition, lighting, style, aspect ratio) for an AI image generator to create the ad's visual.",
-            },
-          },
-          required: [
-            "title",
-            "angle",
-            "rationale",
-            "targetAudience",
-            "channels",
-            "headline",
-            "body",
-            "cta",
-            "imagePrompt",
-          ],
-        },
-      },
     },
-    required: ["analysis", "counterStrategies"],
   },
-};
+  required: ["analysis", "counterStrategies"],
+} as const;
 
 function buildPrompt(competitorName: string): string {
   const adsBlock = MOCK_COMPETITOR_ADS.map(
@@ -164,7 +159,7 @@ Analyze this competitor's advertising approach, then produce exactly THREE disti
 - Be genuinely different from the other two (different angle, different emotional lever, different channel mix where sensible).
 - Include ready-to-run ad copy and a detailed AI image-generation prompt for the visual.
 
-Call the ${ANALYSIS_TOOL_NAME} tool with your findings. Do not include any text outside the tool call.`;
+Respond with JSON only, matching the provided response schema exactly.`;
 }
 
 function buildMockResult(competitorName: string): AnalyzeResult {
@@ -239,27 +234,23 @@ function buildMockResult(competitorName: string): AnalyzeResult {
   };
 }
 
-async function generateWithClaude(competitorName: string): Promise<AnalyzeResult> {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+async function generateWithGemini(competitorName: string): Promise<AnalyzeResult> {
+  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-  const message = await client.messages.create({
+  const response = await client.models.generateContent({
     model: MODEL,
-    max_tokens: 4096,
-    tools: [ANALYSIS_TOOL],
-    tool_choice: { type: "tool", name: ANALYSIS_TOOL_NAME },
-    messages: [{ role: "user", content: buildPrompt(competitorName) }],
+    contents: buildPrompt(competitorName),
+    config: {
+      responseMimeType: "application/json",
+      responseJsonSchema: ANALYSIS_JSON_SCHEMA,
+    },
   });
 
-  const toolUse = message.content.find(
-    (block): block is Anthropic.ToolUseBlock =>
-      block.type === "tool_use" && block.name === ANALYSIS_TOOL_NAME
-  );
-
-  if (!toolUse) {
-    throw new Error("Model did not return a structured tool_use response.");
+  if (!response.text) {
+    throw new Error("Gemini did not return a text response.");
   }
 
-  const parsed = toolUse.input as {
+  const parsed = JSON.parse(response.text) as {
     analysis: Omit<CompetitorAnalysis, "adsAnalyzed">;
     counterStrategies: Array<Omit<CounterStrategy, "id" | "channels"> & { channels: string[] }>;
   };
@@ -301,16 +292,16 @@ export async function POST(request: Request) {
     return Response.json(payload, { status: 400 });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     const payload: AnalyzeResult = buildMockResult(competitorName);
     return Response.json(payload);
   }
 
   try {
-    const result = await generateWithClaude(competitorName);
+    const result = await generateWithGemini(competitorName);
     return Response.json(result);
   } catch (error) {
-    console.error("Claude analysis failed, falling back to mock data:", error);
+    console.error("Gemini analysis failed, falling back to mock data:", error);
     const payload: AnalyzeResult = buildMockResult(competitorName);
     return Response.json(payload);
   }

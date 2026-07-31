@@ -191,7 +191,7 @@ function SourceBadge({ source }: { source: AnalyzeResult["source"] }) {
       )}
     >
       <Sparkles className="h-3 w-3" />
-      {isAi ? "Powered by Claude" : "Demo mode — no API key set"}
+      {isAi ? "Powered by Gemini" : "Demo mode — no API key set"}
     </div>
   );
 }
