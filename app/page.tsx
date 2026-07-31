@@ -242,9 +242,14 @@ export default function Home() {
               }}
               className="space-y-8"
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <SourceBadge source={result.source} />
-                <ConfidenceBadge confidence={result.analysis.confidence} />
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <SourceBadge result={result} />
+                  <ConfidenceBadge confidence={result.analysis.confidence} />
+                </div>
+                {result.mockReasonDetail && (
+                  <p className="mt-2 text-xs text-neutral-500">{result.mockReasonDetail}</p>
+                )}
               </div>
 
               {result.profileEvidence.length > 0 && (
@@ -276,8 +281,14 @@ export default function Home() {
   );
 }
 
-function SourceBadge({ source }: { source: AnalyzeResult["source"] }) {
-  const isAi = source === "ai";
+function SourceBadge({ result }: { result: AnalyzeResult }) {
+  const isAi = result.source === "ai";
+  const label = isAi
+    ? "Powered by Gemini"
+    : result.mockReason === "error"
+      ? "Demo mode — live request failed"
+      : "Demo mode — no API key set";
+
   return (
     <div
       className={clsx(
@@ -288,7 +299,7 @@ function SourceBadge({ source }: { source: AnalyzeResult["source"] }) {
       )}
     >
       <Sparkles className="h-3 w-3" />
-      {isAi ? "Powered by Gemini" : "Demo mode — no API key set"}
+      {label}
     </div>
   );
 }

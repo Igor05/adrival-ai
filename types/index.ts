@@ -74,6 +74,10 @@ export interface ProfileEvidence {
 
 export type AnalysisSource = "ai" | "mock";
 
+// Why a "mock" result was returned — lets the UI say something more useful
+// than a blanket "no API key" when the key is fine but the live call failed.
+export type MockReason = "no_key" | "error";
+
 export interface AnalyzeResult {
   competitor: string;
   platforms: CreatorPlatform[];
@@ -82,6 +86,8 @@ export interface AnalyzeResult {
   profileEvidence: ProfileEvidence[];
   generatedAt: string;
   source: AnalysisSource;
+  mockReason?: MockReason;
+  mockReasonDetail?: string;
 }
 
 export interface AnalyzeRequestBody {

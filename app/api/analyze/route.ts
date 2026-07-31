@@ -153,6 +153,14 @@ const ANALYSIS_JSON_SCHEMA = {
   required: ["analysis", "counterStrategies"],
 } as const;
 
+function describeAgentError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/RESOURCE_EXHAUSTED|429|quota/i.test(message)) {
+    return "Gemini's Google Search grounding hit its rate limit — that's a separate, very small free-tier quota from normal Gemini calls. Showing example data instead.";
+  }
+  return "The live AI request failed unexpectedly — showing example data instead.";
+}
+
 function platformList(platforms: CreatorPlatform[]): string {
   return platforms.join(" and ");
 }
@@ -469,6 +477,7 @@ export async function POST(request: Request) {
   if (!process.env.GEMINI_API_KEY) {
     const payload = buildMockResult(competitorName, platforms);
     payload.profileEvidence = profileEvidence;
+    payload.mockReason = "no_key";
     return Response.json(payload);
   }
 
@@ -480,6 +489,8 @@ export async function POST(request: Request) {
     console.error("Gemini agent pipeline failed, falling back to mock data:", error);
     const payload = buildMockResult(competitorName, platforms);
     payload.profileEvidence = profileEvidence;
+    payload.mockReason = "error";
+    payload.mockReasonDetail = describeAgentError(error);
     return Response.json(payload);
   }
 }
